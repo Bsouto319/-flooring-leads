@@ -1,0 +1,23 @@
+{
+  "name": "flooring-leads",
+  "version": "1.0.0",
+  "description": "Multi-tenant lead automation for US flooring companies",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "docker:build": "docker build -t flooring-leads .",
+    "docker:run": "docker run -p 3000:3000 --env-file .env flooring-leads"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "googleapis": "^140.0.0",
+    "openai": "^4.28.0",
+    "twilio": "^5.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.3"
+  }
+}

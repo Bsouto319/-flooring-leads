@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FloorLeads Admin</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f1117; --surface: #1a1d27; --surface2: #22263a;
+      --border: #2d3148; --text: #e2e8f0; --muted: #8892b0;
+      --blue: #4f8ef7; --green: #48bb78; --yellow: #ecc94b;
+      --red: #fc8181; --purple: #9f7aea;
+    }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; }
+    a { color: var(--blue); text-decoration: none; }
+
+    /* Layout */
+    .app { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+    .sidebar { background: var(--surface); border-right: 1px solid var(--border); padding: 24px 16px; }
+    .main { padding: 24px; overflow-x: hidden; }
+
+    /* Header */
+    .logo { font-size: 20px; font-weight: 700; color: var(--blue); margin-bottom: 8px; }
+    .status-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--green); }
+    .status-badge::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+    .heartbeat { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+    /* Sidebar nav */
+    .nav-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 24px 0 8px; }
+    .nav-item { padding: 8px 12px; border-radius: 6px; cursor: pointer; color: var(--muted); transition: background .15s, color .15s; margin-bottom: 2px; }
+    .nav-item:hover, .nav-item.active { background: var(--surface2); color: var(--text); }
+
+    /* Page header */
+    .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .page-title { font-size: 22px; font-weight: 600; }
+    .refresh-btn { padding: 8px 16px; border-radius: 6px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); cursor: pointer; font-size: 13px; }
+    .refresh-btn:hover { background: var(--border); }
+
+    /* KPI cards */
+    .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+    .kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
+    .kpi-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+    .kpi-value { font-size: 32px; font-weight: 700; margin: 8px 0 4px; }
+    .kpi-value.blue { color: var(--blue); }
+    .kpi-value.green { color: var(--green); }
+    .kpi-value.yellow { color: var(--yellow); }
+    .kpi-value.purple { color: var(--purple); }
+
+    /* Charts + table grid */
+    .grid-2 { display: grid; grid-template-columns: 1fr 320px; gap: 16px; margin-bottom: 24px; }
+
+    /* Card */
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
+    .card-title { font-size: 14px; font-weight: 600; margin-bottom: 16px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+
+    /* Table */
+    table { width: 100%; border-collapse: collapse; }
+    th { text-align: left; padding: 10px 12px; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); border-bottom: 1px solid var(--border); }
+    td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--surface2); }
+
+    /* Badges */
+    .badge { display: inline-block; padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+    .badge-gray   { background: #374151; color: #9ca3af; }
+    .badge-blue   { background: #1e3a5f; color: var(--blue); }
+    .badge-green  { background: #1a3a2a; color: var(--green); }
+    .badge-red    { background: #3a1a1a; color: var(--red); }
+    .badge-yellow { background: #3a2e1a; color: var(--yellow); }
+
+    /* Buttons */
+    .btn-sm { padding: 4px 10px; border-radius: 5px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); cursor: pointer; font-size: 12px; }
+    .btn-sm:hover { background: var(--border); }
+    .toggle { position: relative; display: inline-block; width: 36px; height: 20px; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; inset: 0; background: #374151; border-radius: 20px; transition: .3s; cursor: pointer; }
+    .slider::before { content: ''; position: absolute; width: 14px; height: 14px; left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: .3s; }
+    input:checked + .slider { background: var(--green); }
+    input:checked + .slider::before { transform: translateX(16px); }
+
+    /* Pagination */
+    .pagination { display: flex; justify-content: center; gap: 8px; margin-top: 16px; }
+    .page-btn { padding: 6px 12px; border-radius: 5px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); cursor: pointer; font-size: 13px; }
+    .page-btn.active { background: var(--blue); border-color: var(--blue); }
+    .page-btn:disabled { opacity: .4; cursor: default; }
+
+    /* Error log */
+    .error-log { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin-top: 24px; }
+    .error-log-header { padding: 16px 20px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: 600; }
+    .error-list { display: none; padding: 0 20px 20px; }
+    .error-list.open { display: block; }
+    .error-item { padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+    .error-item:last-child { border-bottom: none; }
+    .error-item .svc { color: var(--red); font-weight: 600; margin-right: 8px; }
+    .error-item .ts  { color: var(--muted); margin-right: 8px; }
+
+    /* Modal */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 100; align-items: center; justify-content: center; }
+    .modal-overlay.open { display: flex; }
+    .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 28px; max-width: 560px; width: 90%; }
+    .modal h3 { font-size: 16px; margin-bottom: 16px; }
+    .modal pre { background: var(--bg); padding: 16px; border-radius: 8px; white-space: pre-wrap; font-size: 13px; color: var(--text); border: 1px solid var(--border); }
+    .modal-close { margin-top: 16px; float: right; }
+
+    /* Views */
+    .view { display: none; }
+    .view.active { display: block; }
+  </style>
+</head>
+<body>
+
+<div class="app">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="logo">FloorLeads</div>
+    <div class="status-badge" id="statusBadge">Online</div>
+    <div class="heartbeat" id="heartbeat">–</div>
+
+    <div class="nav-title">Menu</div>
+    <div class="nav-item active" onclick="showView('leads')">Leads</div>
+    <div class="nav-item" onclick="showView('clients')">Clients</div>
+
+    <div class="nav-title">System</div>
+    <div class="nav-item" onclick="toggleErrors()">Error Log</div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="page-header">
+      <div class="page-title" id="pageTitle">Dashboard</div>
+      <button class="refresh-btn" onclick="loadAll()">Refresh</button>
+    </div>
+
+    <!-- KPIs -->
+    <div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-label">Leads Today</div><div class="kpi-value blue" id="kpiLeadsToday">–</div></div>
+      <div class="kpi-card"><div class="kpi-label">Calls Today</div><div class="kpi-value green" id="kpiCalls">–</div></div>
+      <div class="kpi-card"><div class="kpi-label">Response Rate</div><div class="kpi-value yellow" id="kpiRate">–</div></div>
+      <div class="kpi-card"><div class="kpi-label">Leads This Week</div><div class="kpi-value purple" id="kpiWeek">–</div></div>
+    </div>
+
+    <!-- Leads view -->
+    <div id="viewLeads" class="view active">
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">Leads by Hour (last 24h)</div>
+          <canvas id="chartHourly" height="120"></canvas>
+        </div>
+        <div class="card">
+          <div class="card-title">Quick Stats</div>
+          <div id="quickStats" style="color:var(--muted);font-size:13px;line-height:2">Loading…</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Recent Leads</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th><th>Phone</th><th>Service</th><th>Status</th><th>Client</th><th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="leadsTable"><tr><td colspan="6" style="text-align:center;color:var(--muted)">Loading…</td></tr></tbody>
+        </table>
+        <div class="pagination" id="pagination"></div>
+      </div>
+    </div>
+
+    <!-- Clients view -->
+    <div id="viewClients" class="view">
+      <div class="card">
+        <div class="card-title">Active Clients</div>
+        <table>
+          <thead>
+            <tr><th>Business</th><th>Twilio Number</th><th>Owner Phone</th><th>Timezone</th><th>Active</th></tr>
+          </thead>
+          <tbody id="clientsTable"><tr><td colspan="5" style="text-align:center;color:var(--muted)">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Error log -->
+    <div class="error-log" id="errorLog">
+      <div class="error-log-header" onclick="toggleErrors()">
+        <span>Error Log <span id="errorCount" style="color:var(--red)"></span></span>
+        <span id="errorChevron">▶</span>
+      </div>
+      <div class="error-list" id="errorList"></div>
+    </div>
+  </main>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <h3 id="modalTitle">AI Voice Script</h3>
+    <pre id="modalBody"></pre>
+    <button class="refresh-btn modal-close" onclick="closeModal()">Close</button>
+  </div>
+</div>
+
+<script>
+const ADMIN_KEY = prompt('Enter admin key:') || '';
+const API = '/api/admin';
+
+let currentPage = 1;
+let hourlyChart = null;
+let errorsOpen = false;
+
+function headers() {
+  return { 'x-admin-key': ADMIN_KEY, 'Content-Type': 'application/json' };
+}
+
+async function api(path) {
+  const res = await fetch(API + path, { headers: headers() });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+async function apiPatch(path, body) {
+  const res = await fetch(API + path, { method: 'PATCH', headers: headers(), body: JSON.stringify(body) });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+function badgeClass(stage) {
+  const map = { new_lead: 'badge-gray', ai_responded: 'badge-blue', scheduled: 'badge-green', lost: 'badge-red' };
+  return map[stage] || 'badge-gray';
+}
+
+function fmt(ts) {
+  if (!ts) return '–';
+  return new Date(ts).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+async function loadStats() {
+  try {
+    const s = await api('/stats');
+    document.getElementById('kpiLeadsToday').textContent = s.leadsToday;
+    document.getElementById('kpiCalls').textContent = s.callsToday;
+    document.getElementById('kpiRate').textContent = s.responseRate + '%';
+    document.getElementById('kpiWeek').textContent = s.leadsWeek;
+
+    document.getElementById('quickStats').innerHTML = `
+      <div>Total leads today: <b>${s.leadsToday}</b></div>
+      <div>Calls made: <b>${s.callsToday}</b></div>
+      <div>Response rate: <b>${s.responseRate}%</b></div>
+      <div>Leads this week: <b>${s.leadsWeek}</b></div>
+    `;
+
+    // Chart
+    const labels = Array.from({ length: 24 }, (_, i) => i + 'h');
+    if (hourlyChart) hourlyChart.destroy();
+    const ctx = document.getElementById('chartHourly').getContext('2d');
+    hourlyChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{ label: 'Leads', data: s.hourly, backgroundColor: '#4f8ef788', borderColor: '#4f8ef7', borderWidth: 1, borderRadius: 4 }]
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: '#8892b0' }, grid: { color: '#2d3148' } },
+          y: { ticks: { color: '#8892b0' }, grid: { color: '#2d3148' }, beginAtZero: true }
+        }
+      }
+    });
+  } catch (e) { console.error('stats', e); }
+}
+
+async function loadLeads(page = 1) {
+  currentPage = page;
+  try {
+    const { data, count } = await api(`/leads?page=${page}&limit=20`);
+    const tbody = document.getElementById('leadsTable');
+    if (!data || !data.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted)">No leads yet</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.map(l => `
+      <tr>
+        <td style="color:var(--muted);font-size:12px">${fmt(l.created_at)}</td>
+        <td>${l.lead_phone || '–'}</td>
+        <td><span class="badge badge-gray">${l.service_type || 'general'}</span></td>
+        <td><span class="badge ${badgeClass(l.stage)}">${(l.stage || 'new_lead').replace('_', ' ')}</span></td>
+        <td style="font-size:12px;color:var(--muted)">${l.clients ? l.clients.business_name : '–'}</td>
+        <td>${l.ai_response ? `<button class="btn-sm" onclick="showScript('${l.id}')">View Script</button>` : '–'}</td>
+      </tr>
+    `).join('');
+
+    // Pagination
+    const pages = Math.ceil(count / 20);
+    const pg = document.getElementById('pagination');
+    pg.innerHTML = '';
+    for (let i = 1; i <= Math.min(pages, 10); i++) {
+      pg.innerHTML += `<button class="page-btn ${i === page ? 'active' : ''}" onclick="loadLeads(${i})">${i}</button>`;
+    }
+  } catch (e) { console.error('leads', e); }
+}
+
+async function showScript(id) {
+  try {
+    const lead = await api(`/leads/${id}`);
+    document.getElementById('modalTitle').textContent = `Script – ${lead.lead_phone}`;
+    document.getElementById('modalBody').textContent = lead.ai_response || 'No script';
+    document.getElementById('modal').classList.add('open');
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.remove('open');
+}
+
+async function loadClients() {
+  try {
+    const clients = await api('/clients');
+    const tbody = document.getElementById('clientsTable');
+    if (!clients || !clients.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted)">No clients</td></tr>';
+      return;
+    }
+    tbody.innerHTML = clients.map(c => `
+      <tr>
+        <td><b>${c.business_name}</b></td>
+        <td style="font-size:12px">${c.twilio_number}</td>
+        <td style="font-size:12px">${c.owner_phone}</td>
+        <td style="font-size:12px;color:var(--muted)">${c.timezone || '–'}</td>
+        <td>
+          <label class="toggle">
+            <input type="checkbox" ${c.active ? 'checked' : ''} onchange="toggleClient('${c.id}', this.checked)">
+            <span class="slider"></span>
+          </label>
+        </td>
+      </tr>
+    `).join('');
+  } catch (e) { console.error('clients', e); }
+}
+
+async function toggleClient(id, active) {
+  try { await apiPatch(`/clients/${id}`, { active }); }
+  catch (e) { alert('Error: ' + e.message); }
+}
+
+async function loadErrors() {
+  try {
+    const errors = await api('/errors');
+    const list = document.getElementById('errorList');
+    document.getElementById('errorCount').textContent = errors.length ? `(${errors.length})` : '';
+    if (!errors.length) {
+      list.innerHTML = '<div style="color:var(--muted);font-size:13px">No errors logged</div>';
+      return;
+    }
+    list.innerHTML = errors.map(e => `
+      <div class="error-item">
+        <span class="ts">${fmt(e.created_at)}</span>
+        <span class="svc">[${e.service}]</span>
+        <span>${e.message}</span>
+      </div>
+    `).join('');
+  } catch (e) { console.error('errors', e); }
+}
+
+function toggleErrors() {
+  errorsOpen = !errorsOpen;
+  document.getElementById('errorList').classList.toggle('open', errorsOpen);
+  document.getElementById('errorChevron').textContent = errorsOpen ? '▼' : '▶';
+  if (errorsOpen) loadErrors();
+}
+
+async function checkHealth() {
+  try {
+    const h = await api('/health');
+    document.getElementById('heartbeat').textContent = 'Last check: ' + fmt(h.timestamp);
+    document.getElementById('statusBadge').style.color = 'var(--green)';
+  } catch {
+    document.getElementById('statusBadge').textContent = 'Offline';
+    document.getElementById('statusBadge').style.color = 'var(--red)';
+  }
+}
+
+function showView(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('view' + name.charAt(0).toUpperCase() + name.slice(1)).classList.add('active');
+  event.currentTarget.classList.add('active');
+  const titles = { leads: 'Dashboard', clients: 'Clients' };
+  document.getElementById('pageTitle').textContent = titles[name] || name;
+  if (name === 'clients') loadClients();
+}
+
+async function loadAll() {
+  await Promise.all([loadStats(), loadLeads(currentPage), checkHealth()]);
+}
+
+// Init
+loadAll();
+setInterval(loadAll, 30000);
+
+// Close modal on overlay click
+document.getElementById('modal').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+</script>
+</body>
+</html>
