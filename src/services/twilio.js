@@ -3,12 +3,15 @@ const logger = require('../utils/logger');
 
 const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
-async function makeCall({ to, from, voiceScript, statusCallbackUrl }) {
+async function makeCall({ to, from, voiceScript, statusCallbackUrl, gatherUrl }) {
   const twiml = `<Response>
   <Pause length="1"/>
   <Say voice="Polly.Joanna" language="en-US">${voiceScript}</Say>
   <Pause length="1"/>
-  <Say voice="Polly.Joanna" language="en-US">Please reply to this number with your preferred date and time. Thank you and have a great day!</Say>
+  <Gather input="speech" action="${gatherUrl}" method="POST" speechTimeout="auto" language="en-US">
+    <Say voice="Polly.Joanna" language="en-US">What day and time works best for your free in-home estimate? For example, you can say: tomorrow afternoon, or Friday morning.</Say>
+  </Gather>
+  <Say voice="Polly.Joanna" language="en-US">No problem! We will follow up with you soon. Thank you and have a great day!</Say>
 </Response>`;
 
   const call = await client.calls.create({

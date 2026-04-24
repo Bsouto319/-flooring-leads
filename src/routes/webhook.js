@@ -101,11 +101,13 @@ async function processSms(body) {
   // 5. Make call immediately
   let call;
   try {
+    const BASE = process.env.BASE_URL || 'http://asso488k40o4gsc8c0w80gcw.31.97.240.160.sslip.io';
     call = await twilioSvc.makeCall({
       to: `+${leadPhone}`,
       from: client.twilio_number,
       voiceScript,
-      statusCallbackUrl: `${process.env.BASE_URL}/webhook/call-status`,
+      statusCallbackUrl: `${BASE}/webhook/call-status`,
+      gatherUrl: `${BASE}/webhook/call-gather?conversationId=${conversation.id}&clientId=${client.id}`,
     });
     await db.updateConversation(conversation.id, {
       call_sid: call.sid,
@@ -171,5 +173,103 @@ router.post('/call-status', async (req, res) => {
     handleError('supabase', err).catch(() => {});
   }
 });
+
+// Twilio speech gather — lead responded with preferred date/time
+router.post('/call-gather', async (req, res) => {
+  const { SpeechResult, conversationId, clientId } = { ...req.body, ...req.query };
+  const speech = SpeechResult || '';
+
+  logger.info('webhook', `call-gather speech="${speech}" conv=${conversationId}`);
+
+  if (!speech) {
+    res.set('Content-Type', 'text/xml');
+    return res.send(`<Response><Say voice="Polly.Joanna" language="en-US">We didn't catch that. We'll follow up with you soon. Thank you!</Say></Response>`);
+  }
+
+  // Parse date/time and book calendar async
+  processGather({ speech, conversationId, clientId }).catch(err => handleError('gather', err));
+
+  res.set('Content-Type', 'text/xml');
+  res.send(`<Response>
+  <Say voice="Polly.Joanna" language="en-US">Perfect! We have noted your preference. You will receive a confirmation shortly. Thank you for choosing Dellanno Floors and have a wonderful day!</Say>
+</Response>`);
+});
+
+async function processGather({ speech, conversationId, clientId }) {
+  const { createClient } = require('@supabase/supabase-js');
+  const supabase = createClient(
+    'https://pvphgusjofufwtyiyviu.supabase.co',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB2cGhndXNqb2Z1Znd0eWl5dml1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyNjkwODYsImV4cCI6MjA5MDg0NTA4Nn0.0aA8YNmhVusNuBjWZoEZW50dTRZWowm9AoNVoyGCXBM'
+  );
+
+  // 1. Get conversation + client data
+  const { data: conv } = await supabase
+    .from('conversations')
+    .select('*, clients(*)')
+    .eq('id', conversationId)
+    .single();
+
+  if (!conv) return;
+
+  const client = conv.clients;
+
+  // 2. Parse date/time with GPT
+  const OpenAI = require('openai');
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const now = new Date().toISOString();
+
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    max_tokens: 100,
+    messages: [
+      {
+        role: 'system',
+        content: `Today is ${now}. The user said when they want an appointment. Extract a specific ISO 8601 datetime. If vague (e.g. "tomorrow afternoon"), pick 2pm. If no day mentioned, assume next business day. Respond ONLY with the ISO datetime, nothing else. Timezone: ${client.timezone || 'America/New_York'}.`,
+      },
+      { role: 'user', content: speech },
+    ],
+  });
+
+  const isoDate = completion.choices[0].message.content.trim();
+  logger.info('webhook', `parsed date from speech: ${isoDate}`);
+
+  const startDate = new Date(isoDate);
+  const endDate = new Date(startDate.getTime() + 60 * 60 * 1000); // +1h
+
+  // 3. Save preference to Supabase
+  await supabase.from('conversations').update({
+    stage: 'scheduled',
+    collected_data: { preferred_datetime: isoDate, speech_input: speech },
+    last_response_at: new Date().toISOString(),
+  }).eq('id', conversationId);
+
+  // 4. Google Calendar (if client has refresh token)
+  if (client.google_refresh_token && client.google_calendar_id) {
+    try {
+      await calendarSvc.createFollowUpEvent({
+        refreshToken: client.google_refresh_token,
+        calendarId: client.google_calendar_id,
+        leadPhone: conv.lead_phone,
+        serviceType: conv.service_type,
+        message: `Scheduled via voice call. Lead said: "${speech}"`,
+        voiceScript: `Estimate visit at ${isoDate}`,
+      });
+      logger.info('webhook', `calendar event created for ${isoDate}`);
+    } catch (err) {
+      await handleError('calendar', err);
+    }
+  }
+
+  // 5. Notify owner with scheduled time
+  try {
+    await twilioSvc.sendSms({
+      to: client.owner_phone,
+      from: client.twilio_number,
+      body: `SCHEDULED – ${client.business_name}\nPhone: ${conv.lead_phone}\nService: ${conv.service_type}\nTime: ${startDate.toLocaleString('en-US', { timeZone: client.timezone || 'America/New_York' })}\nLead said: "${speech}"`,
+    });
+  } catch (err) {
+    await handleError('twilio', err);
+  }
+}
 
 module.exports = router;
