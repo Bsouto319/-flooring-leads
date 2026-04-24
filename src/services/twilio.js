@@ -5,13 +5,20 @@ const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TO
 
 async function makeCall({ to, from, voiceScript, statusCallbackUrl, gatherUrl }) {
   const twiml = `<Response>
-  <Pause length="1"/>
-  <Say voice="Polly.Joanna" language="en-US">${voiceScript}</Say>
-  <Pause length="1"/>
-  <Gather input="speech" action="${gatherUrl}" method="POST" speechTimeout="auto" language="en-US">
-    <Say voice="Polly.Joanna" language="en-US">What day and time works best for your free in-home estimate? For example, you can say: tomorrow afternoon, or Friday morning.</Say>
+  <Pause length="2"/>
+  <Say voice="Polly.Joanna" language="en-US">
+    <prosody rate="85%">${voiceScript}</prosody>
+  </Say>
+  <Pause length="2"/>
+  <Gather input="speech" action="${gatherUrl}" method="POST" speechTimeout="3" timeout="10" language="en-US">
+    <Say voice="Polly.Joanna" language="en-US">
+      <prosody rate="85%">What day and time works best for your free in-home estimate? For example, you can say: tomorrow afternoon, or Friday morning.</prosody>
+    </Say>
   </Gather>
-  <Say voice="Polly.Joanna" language="en-US">No problem! We will follow up with you soon. Thank you and have a great day!</Say>
+  <Pause length="1"/>
+  <Say voice="Polly.Joanna" language="en-US">
+    <prosody rate="85%">No problem! We will follow up with you soon. Thank you and have a great day!</prosody>
+  </Say>
 </Response>`;
 
   const call = await client.calls.create({
@@ -20,7 +27,6 @@ async function makeCall({ to, from, voiceScript, statusCallbackUrl, gatherUrl })
     twiml,
     statusCallback: statusCallbackUrl,
     statusCallbackMethod: 'POST',
-    machineDetection: 'Enable',
   });
 
   logger.info('twilio', `call initiated sid=${call.sid} to=${to}`);
