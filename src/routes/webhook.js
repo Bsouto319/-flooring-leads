@@ -193,7 +193,7 @@ router.post('/call-gather', async (req, res) => {
 
   res.set('Content-Type', 'text/xml');
   res.send(`<Response>
-  <Say voice="Polly.Joanna" language="en-US">Perfect! We have noted your preference. You will receive a confirmation shortly. Thank you for choosing Denali Custom Homes and have a wonderful day!</Say>
+  <Say voice="Polly.Joanna" language="en-US">Perfect! We have noted your preference and our team will confirm shortly. Thank you and have a wonderful day!</Say>
 </Response>`);
 });
 

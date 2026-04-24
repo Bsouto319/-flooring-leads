@@ -1,7 +1,7 @@
 {
-  "name": "flooring-leads",
+  "name": "leadpilot-api",
   "version": "1.0.0",
-  "description": "Multi-tenant lead automation for US flooring companies",
+  "description": "LeadPilot — Multi-tenant AI lead automation for US service companies",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",

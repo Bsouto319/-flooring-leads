@@ -25,7 +25,7 @@ app.get('/', (req, res) => res.redirect('/dashboard'));
 app.use(errorHandler);
 
 app.listen(PORT, () => {
-  logger.info('server', `FloorLeads running on port ${PORT}`);
+  logger.info('server', `LeadPilot API running on port ${PORT}`);
 });
 
 process.on('unhandledRejection', (reason) => {
