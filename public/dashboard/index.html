@@ -120,8 +120,8 @@
     <div class="heartbeat" id="heartbeat">–</div>
 
     <div class="nav-title">Menu</div>
-    <div class="nav-item active" onclick="showView('leads')">Leads</div>
-    <div class="nav-item" onclick="showView('clients')">Clients</div>
+    <div class="nav-item active" onclick="showView('leads', this)">Leads</div>
+    <div class="nav-item" onclick="showView('clients', this)">Clients</div>
 
     <div class="nav-title">System</div>
     <div class="nav-item" onclick="toggleErrors()">Error Log</div>
@@ -382,11 +382,11 @@ async function checkHealth() {
   }
 }
 
-function showView(name) {
+function showView(name, el) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('view' + name.charAt(0).toUpperCase() + name.slice(1)).classList.add('active');
-  event.currentTarget.classList.add('active');
+  if (el) el.classList.add('active');
   const titles = { leads: 'Dashboard', clients: 'Clients' };
   document.getElementById('pageTitle').textContent = titles[name] || name;
   if (name === 'clients') loadClients();
