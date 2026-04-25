@@ -157,14 +157,28 @@
       </div>
 
       <div class="card">
-        <div class="card-title">Recent Leads</div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+          <div class="card-title" style="margin-bottom:0;flex:1">Recent Leads</div>
+          <input id="searchInput" type="text" placeholder="Search name or phone…"
+            style="padding:7px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;width:200px"
+            oninput="debounceSearch()">
+          <select id="stageFilter" onchange="loadLeads(1)"
+            style="padding:7px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px">
+            <option value="">All stages</option>
+            <option value="new_lead">New Lead</option>
+            <option value="ai_responded">AI Responded</option>
+            <option value="scheduled">Scheduled</option>
+            <option value="lost">Lost</option>
+          </select>
+          <button class="refresh-btn" onclick="exportCSV()" title="Export CSV">⬇ CSV</button>
+        </div>
         <table>
           <thead>
             <tr>
-              <th>Time</th><th>Phone</th><th>Service</th><th>Status</th><th>Client</th><th>Action</th>
+              <th>Time</th><th>Name</th><th>Phone</th><th>Service</th><th>Status</th><th>Client</th><th>Action</th>
             </tr>
           </thead>
-          <tbody id="leadsTable"><tr><td colspan="6" style="text-align:center;color:var(--muted)">Loading…</td></tr></tbody>
+          <tbody id="leadsTable"><tr><td colspan="7" style="text-align:center;color:var(--muted)">Loading…</td></tr></tbody>
         </table>
         <div class="pagination" id="pagination"></div>
       </div>
@@ -302,27 +316,39 @@ async function loadStats() {
   } catch (e) { console.error('stats', e); }
 }
 
+let searchTimer = null;
+function debounceSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => loadLeads(1), 350);
+}
+
 async function loadLeads(page = 1) {
   currentPage = page;
+  const search = (document.getElementById('searchInput') || {}).value || '';
+  const stage  = (document.getElementById('stageFilter') || {}).value  || '';
   try {
-    const { data, count } = await api(`/leads?page=${page}&limit=20`);
+    const params = new URLSearchParams({ page, limit: 20 });
+    if (search) params.set('search', search);
+    if (stage)  params.set('stage', stage);
+    const { data, count } = await api(`/leads?${params}`);
     const tbody = document.getElementById('leadsTable');
     if (!data || !data.length) {
-      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted)">No leads yet</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted)">No leads found</td></tr>';
+      document.getElementById('pagination').innerHTML = '';
       return;
     }
     tbody.innerHTML = data.map(l => `
       <tr>
         <td style="color:var(--muted);font-size:12px">${fmt(l.created_at)}</td>
-        <td>${l.lead_phone || '–'}</td>
+        <td style="font-size:13px">${l.lead_name || '–'}</td>
+        <td style="font-size:12px">${l.lead_phone || '–'}</td>
         <td><span class="badge badge-gray">${l.service_type || 'general'}</span></td>
-        <td><span class="badge ${badgeClass(l.stage)}">${(l.stage || 'new_lead').replace('_', ' ')}</span></td>
+        <td><span class="badge ${badgeClass(l.stage)}">${(l.stage || 'new_lead').replace(/_/g, ' ')}</span></td>
         <td style="font-size:12px;color:var(--muted)">${l.clients ? l.clients.business_name : '–'}</td>
-        <td>${l.ai_response ? `<button class="btn-sm" onclick="showScript('${l.id}')">View Script</button>` : '–'}</td>
+        <td>${l.ai_response ? `<button class="btn-sm" onclick="showScript('${l.id}')">Script</button>` : '–'}</td>
       </tr>
     `).join('');
 
-    // Pagination
     const pages = Math.ceil(count / 20);
     const pg = document.getElementById('pagination');
     pg.innerHTML = '';
@@ -330,6 +356,16 @@ async function loadLeads(page = 1) {
       pg.innerHTML += `<button class="page-btn ${i === page ? 'active' : ''}" onclick="loadLeads(${i})">${i}</button>`;
     }
   } catch (e) { console.error('leads', e); }
+}
+
+async function exportCSV() {
+  const res = await fetch(API + '/leads/export/csv', { headers: headers() });
+  if (!res.ok) { alert('Export failed'); return; }
+  const blob = await res.blob();
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = 'leads.csv'; a.click();
+  URL.revokeObjectURL(url);
 }
 
 async function showScript(id) {

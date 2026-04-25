@@ -41,12 +41,12 @@ async function checkDuplicate(clientId, leadPhone, minutes = 60) {
   return data;
 }
 
-async function saveLead({ clientId, leadPhone, source, serviceType, message }) {
+async function saveLead({ clientId, leadPhone, leadName = 'Customer', source, serviceType, message }) {
   const { data, error } = await supabase
     .from('conversations')
     .insert({
       client_id: clientId,
-      lead_name: 'Customer',
+      lead_name: leadName,
       lead_phone: leadPhone,
       source,
       stage: 'new_lead',
@@ -82,15 +82,48 @@ async function saveError(service, level, message, stack) {
   });
 }
 
-async function getLeads({ page = 1, limit = 20 } = {}) {
+async function getLeads({ page = 1, limit = 20, search = '', stage = '' } = {}) {
   const from = (page - 1) * limit;
-  const { data, error, count } = await supabase
+  let query = supabase
     .from('conversations')
     .select('*, clients(business_name, twilio_number)', { count: 'exact' })
     .order('created_at', { ascending: false })
     .range(from, from + limit - 1);
+  if (stage) query = query.eq('stage', stage);
+  if (search) query = query.or(`lead_phone.ilike.%${search}%,lead_name.ilike.%${search}%`);
+  const { data, error, count } = await query;
   if (error) throw new Error(error.message);
   return { data, count };
+}
+
+async function getAllLeadsForExport() {
+  const { data, error } = await supabase
+    .from('conversations')
+    .select('*, clients(business_name)')
+    .order('created_at', { ascending: false })
+    .limit(5000);
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+async function getWeeklyStats() {
+  const weekAgo = new Date();
+  weekAgo.setDate(weekAgo.getDate() - 7);
+  const { data, error } = await supabase
+    .from('conversations')
+    .select('stage, client_id, clients(business_name, owner_phone, twilio_number)')
+    .gte('created_at', weekAgo.toISOString());
+  if (error) throw new Error(error.message);
+  // group by client
+  const map = {};
+  (data || []).forEach(r => {
+    const id = r.client_id;
+    if (!map[id]) map[id] = { client: r.clients, total: 0, scheduled: 0, responded: 0 };
+    map[id].total++;
+    if (r.stage === 'scheduled')    map[id].scheduled++;
+    if (r.stage === 'ai_responded') map[id].responded++;
+  });
+  return Object.values(map);
 }
 
 async function getLeadById(id) {
@@ -125,6 +158,16 @@ async function getErrors() {
     .limit(20);
   if (error) throw new Error(error.message);
   return data;
+}
+
+async function getAppointments() {
+  const { data, error } = await supabase
+    .from('conversations')
+    .select('*, clients(business_name, twilio_number, owner_phone)')
+    .in('stage', ['scheduled', 'ai_responded'])
+    .order('scheduled_at', { ascending: true, nullsFirst: false });
+  if (error) throw new Error(error.message);
+  return data || [];
 }
 
 async function getDayStats() {
@@ -179,10 +222,13 @@ module.exports = {
   updateConversationByCallSid,
   saveError,
   getLeads,
+  getAllLeadsForExport,
+  getWeeklyStats,
   getLeadById,
   getClients,
   updateClient,
   getErrors,
+  getAppointments,
   getDayStats,
   getHourlyLeads,
 };

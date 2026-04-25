@@ -22,6 +22,25 @@ function normalizePhone(raw) {
   return (raw || '').replace(/\D/g, '');
 }
 
+async function extractLeadName(message) {
+  try {
+    const OpenAI = require('openai');
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const res = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      max_tokens: 20,
+      messages: [
+        { role: 'system', content: 'Extract the person\'s first name from the message. If no name is mentioned, reply with exactly: Customer. Reply ONLY with the name, nothing else.' },
+        { role: 'user', content: message },
+      ],
+    });
+    const name = res.choices[0].message.content.trim().split(' ')[0];
+    return name || 'Customer';
+  } catch {
+    return 'Customer';
+  }
+}
+
 // Twilio inbound SMS
 router.post('/sms', (req, res) => {
   // Respond immediately so Twilio doesn't timeout
@@ -45,6 +64,7 @@ async function processSms(body) {
   logger.info('webhook', `inbound SMS from=${leadPhone} to=${twilioNumber}`);
 
   const serviceType = detectServiceType(message);
+  const leadName    = await extractLeadName(message);
 
   // 1. Find client
   let client;
@@ -86,6 +106,7 @@ async function processSms(body) {
     conversation = await db.saveLead({
       clientId: client.id,
       leadPhone,
+      leadName,
       source: 'sms',
       serviceType,
       message,
@@ -201,6 +222,7 @@ async function processSchedulingReply({ client, conversation, message }) {
     // Update conversation stage
     await db.updateConversation(conversation.id, {
       stage: 'scheduled',
+      scheduled_at: isoDate,
       collected_data: { preferred_datetime: isoDate, sms_reply: message },
       last_response_at: new Date().toISOString(),
     });
