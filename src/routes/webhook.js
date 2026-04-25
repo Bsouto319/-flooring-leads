@@ -129,11 +129,33 @@ async function processSms(body) {
     voiceScript = client.voice_script || `Hi! This is ${client.business_name}. We received your flooring request and would love to schedule a FREE in-home estimate. Please reply with your preferred date and time. Thank you!`;
   }
 
-  // 5. Make call immediately
-  let call;
+  // 5. Mark as ai_responded BEFORE call so scheduling reply detection works
+  try {
+    await db.updateConversation(conversation.id, {
+      stage: 'ai_responded',
+      ai_response: voiceScript,
+      last_response_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    await handleError('supabase', err);
+  }
+
+  // 6. Send SMS to lead asking them to reply with preferred time
+  try {
+    const smsToLead = `Hi${leadName && leadName !== 'Customer' ? ' ' + leadName : ''}! This is ${client.business_name}. We just called about your ${serviceType.replace(/_/g, ' ')} request.\n\nReply to THIS message with your preferred day and time to schedule your FREE estimate and we'll confirm right away! 📅`;
+    await twilioSvc.sendSms({
+      to: `+${leadPhone}`,
+      from: client.twilio_number,
+      body: smsToLead,
+    });
+  } catch (err) {
+    await handleError('twilio', err);
+  }
+
+  // 7. Make outbound call
   try {
     const BASE = process.env.BASE_URL || 'http://asso488k40o4gsc8c0w80gcw.31.97.240.160.sslip.io';
-    call = await twilioSvc.makeCall({
+    const call = await twilioSvc.makeCall({
       to: `+${leadPhone}`,
       from: client.twilio_number,
       voiceScript,
@@ -149,7 +171,7 @@ async function processSms(body) {
     await handleError('twilio', err);
   }
 
-  // 6. Google Calendar (non-critical)
+  // 8. Google Calendar (non-critical)
   if (client.google_refresh_token && client.google_calendar_id) {
     try {
       await calendarSvc.createFollowUpEvent({
@@ -165,27 +187,15 @@ async function processSms(body) {
     }
   }
 
-  // 7. Notify owner
+  // 9. Notify owner
   try {
-    const notifyMsg = `NEW LEAD – ${client.business_name}\nPhone: ${leadPhone}\nService: ${serviceType}\nCall initiated!\nCalendar updated.`;
     await twilioSvc.sendSms({
       to: client.owner_phone,
       from: client.twilio_number,
-      body: notifyMsg,
+      body: `NEW LEAD – ${client.business_name}\nName: ${leadName}\nPhone: +${leadPhone}\nService: ${serviceType}\nCall + SMS sent to lead.`,
     });
   } catch (err) {
     await handleError('twilio', err);
-  }
-
-  // 8. Update stage
-  try {
-    await db.updateConversation(conversation.id, {
-      stage: 'ai_responded',
-      ai_response: voiceScript,
-      last_response_at: new Date().toISOString(),
-    });
-  } catch (err) {
-    await handleError('supabase', err);
   }
 
   logger.info('webhook', `lead processed id=${conversation.id} phone=${leadPhone}`);
@@ -197,6 +207,7 @@ async function processSchedulingReply({ client, conversation, message }) {
     const OpenAI = require('openai');
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const now = new Date().toISOString();
+    const tz  = client.timezone || 'America/New_York';
 
     // Parse date/time from SMS
     const completion = await openai.chat.completions.create({
@@ -205,16 +216,29 @@ async function processSchedulingReply({ client, conversation, message }) {
       messages: [
         {
           role: 'system',
-          content: `Today is ${now}. Extract a specific ISO 8601 datetime from the user's message. If vague (e.g. "tomorrow afternoon"), pick 2pm. If no day, use next business day. Timezone: ${client.timezone || 'America/New_York'}. Respond ONLY with the ISO datetime.`,
+          content: `Today is ${now}. Extract a specific ISO 8601 datetime from the user's message. If vague (e.g. "tomorrow afternoon"), pick 2pm. If no day, use next business day. Timezone: ${tz}. If the message contains NO date or time information at all, respond with exactly: INVALID. Otherwise respond ONLY with the ISO datetime.`,
         },
         { role: 'user', content: message },
       ],
     });
 
-    const isoDate = completion.choices[0].message.content.trim();
+    const raw = completion.choices[0].message.content.trim();
+
+    // If GPT couldn't find a date, ask the lead to clarify
+    if (raw === 'INVALID' || isNaN(Date.parse(raw))) {
+      await twilioSvc.sendSms({
+        to: `+${conversation.lead_phone}`,
+        from: client.twilio_number,
+        body: `Thanks for reaching out! To schedule your free estimate with ${client.business_name}, please reply with a specific day and time — for example: "Monday at 2pm" or "Friday morning". 📅`,
+      });
+      logger.info('webhook', `could not parse date from reply: "${message}", asked lead to clarify`);
+      return;
+    }
+
+    const isoDate = raw;
     const scheduledDate = new Date(isoDate);
     const formatted = scheduledDate.toLocaleString('en-US', {
-      timeZone: client.timezone || 'America/New_York',
+      timeZone: tz,
       weekday: 'long', month: 'long', day: 'numeric',
       hour: '2-digit', minute: '2-digit',
     });
@@ -247,14 +271,14 @@ async function processSchedulingReply({ client, conversation, message }) {
     await twilioSvc.sendSms({
       to: `+${conversation.lead_phone}`,
       from: client.twilio_number,
-      body: `Great! Your free estimate with ${client.business_name} is confirmed for ${formatted}. We'll see you then! Reply STOP to cancel.`,
+      body: `✅ Confirmed! Your free estimate with ${client.business_name} is scheduled for ${formatted}.\n\nWe'll see you then! Reply STOP to cancel.`,
     });
 
     // Notify owner
     await twilioSvc.sendSms({
       to: client.owner_phone,
       from: client.twilio_number,
-      body: `SCHEDULED ✓ – ${client.business_name}\nPhone: ${conversation.lead_phone}\nService: ${conversation.service_type}\nTime: ${formatted}\nLead said: "${message}"`,
+      body: `SCHEDULED ✓ – ${client.business_name}\nPhone: ${conversation.lead_phone}\nName: ${conversation.lead_name || 'Customer'}\nService: ${conversation.service_type}\nTime: ${formatted}\nLead said: "${message}"`,
     });
 
     logger.info('webhook', `scheduled lead ${conversation.lead_phone} for ${isoDate}`);
