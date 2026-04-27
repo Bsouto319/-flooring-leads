@@ -140,12 +140,19 @@ async function processSms(body) {
     return;
   }
 
-  // 2. Check if lead already exists (scheduling reply)
+  // 2. Check if lead already exists (scheduling or address reply)
   const existingConv = await db.getExistingConversation(client.id, leadPhone);
-  if (existingConv && existingConv.stage === 'ai_responded') {
-    logger.info('webhook', `scheduling reply from ${leadPhone} — processing date`);
-    await processSchedulingReply({ client, conversation: existingConv, message });
-    return;
+  if (existingConv) {
+    if (existingConv.stage === 'awaiting_address') {
+      logger.info('webhook', `address reply from ${leadPhone}`);
+      await processAddressReply({ client, conversation: existingConv, message });
+      return;
+    }
+    if (existingConv.stage === 'ai_responded') {
+      logger.info('webhook', `scheduling reply from ${leadPhone} — processing date`);
+      await processSchedulingReply({ client, conversation: existingConv, message });
+      return;
+    }
   }
 
   // 2. Anti-duplicate
@@ -270,6 +277,55 @@ async function processSms(body) {
 }
 
 // Process scheduling reply from lead
+async function processAddressReply({ client, conversation, message }) {
+  try {
+    const address = message.trim();
+    const tz = client.timezone || 'America/New_York';
+    const formatted = new Date(conversation.scheduled_at).toLocaleString('en-US', {
+      timeZone: tz, weekday: 'long', month: 'long', day: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+
+    await db.updateConversation(conversation.id, {
+      lead_address: address,
+      stage: 'scheduled',
+      collected_data: { ...(conversation.collected_data || {}), address },
+      last_response_at: new Date().toISOString(),
+    });
+
+    // Update calendar event with address
+    if (client.google_refresh_token && client.google_calendar_id) {
+      try {
+        await calendarSvc.updateEventAddress({
+          refreshToken: client.google_refresh_token,
+          calendarId: client.google_calendar_id,
+          leadPhone: conversation.lead_phone,
+          address,
+          scheduledAt: conversation.scheduled_at,
+        });
+      } catch (err) {
+        await handleError('calendar', err);
+      }
+    }
+
+    await twilioSvc.sendSms({
+      to: `+${conversation.lead_phone}`,
+      from: client.twilio_number,
+      body: `✅ All set! Your appointment with ${client.business_name} is confirmed:\n📅 ${formatted}\n📍 ${address}\n\nWe'll see you then! Reply STOP to cancel.`,
+    });
+
+    await twilioSvc.sendSms({
+      to: client.owner_phone,
+      from: client.twilio_number,
+      body: `ADDRESS CONFIRMED – ${client.business_name}\nName: ${conversation.lead_name}\nPhone: +${conversation.lead_phone}\nTime: ${formatted}\nAddress: ${address}`,
+    });
+
+    logger.info('webhook', `address captured for ${conversation.lead_phone}: ${address}`);
+  } catch (err) {
+    await handleError('address-capture', err);
+  }
+}
+
 async function processSchedulingReply({ client, conversation, message }) {
   try {
     const OpenAI = require('openai');
@@ -311,15 +367,15 @@ async function processSchedulingReply({ client, conversation, message }) {
       hour: '2-digit', minute: '2-digit',
     });
 
-    // Update conversation stage
+    // Update conversation — awaiting address before final confirmation
     await db.updateConversation(conversation.id, {
-      stage: 'scheduled',
+      stage: 'awaiting_address',
       scheduled_at: isoDate,
       collected_data: { preferred_datetime: isoDate, sms_reply: message },
       last_response_at: new Date().toISOString(),
     });
 
-    // Google Calendar
+    // Create calendar event (placeholder — will update with address)
     if (client.google_refresh_token && client.google_calendar_id) {
       try {
         await calendarSvc.createFollowUpEvent({
@@ -335,18 +391,18 @@ async function processSchedulingReply({ client, conversation, message }) {
       }
     }
 
-    // Confirm to lead via SMS
+    // Ask for address to complete booking
     await twilioSvc.sendSms({
       to: `+${conversation.lead_phone}`,
       from: client.twilio_number,
-      body: `✅ Confirmed! Your free estimate with ${client.business_name} is scheduled for ${formatted}.\n\nWe'll see you then! Reply STOP to cancel.`,
+      body: `Great! ${formatted} works for us 📅\n\nOne last thing — what's the address for the estimate? (Street, City, State) 📍`,
     });
 
-    // Notify owner
+    // Notify owner of pending appointment
     await twilioSvc.sendSms({
       to: client.owner_phone,
       from: client.twilio_number,
-      body: `SCHEDULED ✓ – ${client.business_name}\nPhone: ${conversation.lead_phone}\nName: ${conversation.lead_name || 'Customer'}\nService: ${conversation.service_type}\nTime: ${formatted}\nLead said: "${message}"`,
+      body: `PENDING ADDRESS – ${client.business_name}\nName: ${conversation.lead_name || 'Customer'}\nPhone: +${conversation.lead_phone}\nService: ${conversation.service_type}\nTime: ${formatted}\n(Waiting for address)`,
     });
 
     logger.info('webhook', `scheduled lead ${conversation.lead_phone} for ${isoDate}`);

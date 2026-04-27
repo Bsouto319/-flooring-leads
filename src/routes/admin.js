@@ -18,7 +18,11 @@ router.get('/health', (req, res) => {
 
 router.get('/stats', async (req, res) => {
   try {
-    const [stats, hourly] = await Promise.all([db.getDayStats(), db.getHourlyLeads()]);
+    const clientId = req.query.clientId || '';
+    const [stats, hourly] = await Promise.all([
+      db.getDayStats(clientId),
+      db.getHourlyLeads(clientId),
+    ]);
     res.json({ ...stats, hourly });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -27,11 +31,12 @@ router.get('/stats', async (req, res) => {
 
 router.get('/leads', async (req, res) => {
   try {
-    const page   = parseInt(req.query.page)  || 1;
-    const limit  = parseInt(req.query.limit) || 20;
-    const search = req.query.search || '';
-    const stage  = req.query.stage  || '';
-    const { data, count } = await db.getLeads({ page, limit, search, stage });
+    const page     = parseInt(req.query.page)  || 1;
+    const limit    = parseInt(req.query.limit) || 20;
+    const search   = req.query.search   || '';
+    const stage    = req.query.stage    || '';
+    const clientId = req.query.clientId || '';
+    const { data, count } = await db.getLeads({ page, limit, search, stage, clientId });
     res.json({ data, count, page, limit });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -41,10 +46,11 @@ router.get('/leads', async (req, res) => {
 router.get('/leads/export/csv', async (req, res) => {
   try {
     const leads = await db.getAllLeadsForExport();
-    const header = ['id','lead_name','lead_phone','source','service_type','stage','scheduled_at','created_at','business_name'];
+    const header = ['id','lead_name','lead_phone','lead_address','source','service_type','stage','scheduled_at','created_at','business_name'];
     const rows = leads.map(l => [
-      l.id, l.lead_name, l.lead_phone, l.source, l.service_type,
-      l.stage, l.scheduled_at || '', l.created_at,
+      l.id, l.lead_name, l.lead_phone, l.lead_address || '',
+      l.source, l.service_type, l.stage,
+      l.scheduled_at || '', l.created_at,
       l.clients ? l.clients.business_name : '',
     ].map(v => `"${String(v || '').replace(/"/g,'""')}"`).join(','));
     const csv = [header.join(','), ...rows].join('\n');
@@ -86,7 +92,8 @@ router.patch('/clients/:id', async (req, res) => {
 
 router.get('/appointments', async (req, res) => {
   try {
-    const appointments = await db.getAppointments();
+    const clientId = req.query.clientId || '';
+    const appointments = await db.getAppointments(clientId);
     res.json(appointments);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -113,12 +120,10 @@ router.post('/weekly-report', async (req, res) => {
     for (const s of stats) {
       if (!s.client || !s.client.owner_phone) continue;
       const msg =
-        `📊 LeadPilot Weekly Report – ${s.client.business_name}\n` +
-        `Week: ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}\n` +
-        `Leads received: ${s.total}\n` +
-        `Appointments booked: ${s.scheduled}\n` +
-        `Pending follow-up: ${s.responded}\n` +
-        `Conversion rate: ${s.total > 0 ? Math.round((s.scheduled / s.total) * 100) : 0}%\n` +
+        `📊 LeadPilot Weekly – ${s.client.business_name}\n` +
+        `Leads: ${s.total}\n` +
+        `Scheduled: ${s.scheduled}\n` +
+        `Conversion: ${s.total > 0 ? Math.round((s.scheduled / s.total) * 100) : 0}%\n` +
         `Powered by LeadPilot`;
       await twilioSvc.sendSms({ to: s.client.owner_phone, from: s.client.twilio_number, body: msg });
       results.push({ client: s.client.business_name, sent: true });
