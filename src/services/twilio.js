@@ -1,9 +1,17 @@
 const twilio = require('twilio');
 const logger = require('../utils/logger');
 
-const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+const defaultClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
-async function makeCall({ to, from, voiceScript, statusCallbackUrl, gatherUrl }) {
+function getClient(credentials) {
+  if (credentials?.accountSid && credentials?.authToken) {
+    return twilio(credentials.accountSid, credentials.authToken);
+  }
+  return defaultClient;
+}
+
+async function makeCall({ to, from, voiceScript, statusCallbackUrl, gatherUrl, credentials }) {
+  const client = getClient(credentials);
   const twiml = `<Response>
   <Pause length="2"/>
   <Say voice="Polly.Joanna" language="en-US">${voiceScript}</Say>
@@ -24,17 +32,18 @@ async function makeCall({ to, from, voiceScript, statusCallbackUrl, gatherUrl })
   return call;
 }
 
-async function sendSms({ to, from, body }) {
+async function sendSms({ to, from, body, credentials }) {
+  const client = getClient(credentials);
   const msg = await client.messages.create({ to, from, body });
   logger.info('twilio', `sms sent sid=${msg.sid} to=${to}`);
   return msg;
 }
 
-function validateSignature(req) {
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
+function validateSignature(req, authToken) {
+  const token = authToken || process.env.TWILIO_AUTH_TOKEN;
   const signature = req.headers['x-twilio-signature'];
   const url = process.env.BASE_URL + req.originalUrl;
-  return twilio.validateRequest(authToken, signature, url, req.body);
+  return twilio.validateRequest(token, signature, url, req.body);
 }
 
 module.exports = { makeCall, sendSms, validateSignature };

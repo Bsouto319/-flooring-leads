@@ -38,6 +38,13 @@ function normalizePhone(raw) {
   return (raw || '').replace(/\D/g, '');
 }
 
+function clientCredentials(client) {
+  if (client?.twilio_account_sid && client?.twilio_auth_token) {
+    return { accountSid: client.twilio_account_sid, authToken: client.twilio_auth_token };
+  }
+  return null;
+}
+
 async function extractLeadName(message) {
   try {
     const OpenAI = require('openai');
@@ -91,6 +98,7 @@ async function processSms(body) {
         to: `+${leadPhone}`,
         from: twilioNumber,
         body: `You have been unsubscribed from ${clientForStop ? clientForStop.business_name : 'our service'} notifications. No more messages will be sent. Reply START to re-subscribe.`,
+        credentials: clientCredentials(clientForStop),
       });
       await db.optOutLead(leadPhone, twilioNumber);
     } catch {}
@@ -105,6 +113,7 @@ async function processSms(body) {
         to: `+${leadPhone}`,
         from: twilioNumber,
         body: `${clientForHelp ? clientForHelp.business_name : 'LeadPilot'}: Reply to schedule your free estimate. Reply STOP to unsubscribe. Msg&Data rates may apply.`,
+        credentials: clientCredentials(clientForHelp),
       });
     } catch {}
     return;
@@ -191,6 +200,7 @@ async function processSms(body) {
       businessName: client.business_name,
       serviceType,
       pricing: client.pricing,
+      systemPrompt: client.ai_system_prompt || null,
     });
   } catch (err) {
     await handleError('openai', err);
@@ -222,6 +232,7 @@ async function processSms(body) {
       to: `+${leadPhone}`,
       from: client.twilio_number,
       body: smsBody,
+      credentials: clientCredentials(client),
     });
   } catch (err) {
     await handleError('twilio', err);
@@ -236,6 +247,7 @@ async function processSms(body) {
       voiceScript,
       statusCallbackUrl: `${BASE}/webhook/call-status`,
       gatherUrl: `${BASE}/webhook/call-gather?conversationId=${conversation.id}&clientId=${client.id}`,
+      credentials: clientCredentials(client),
     });
     await db.updateConversation(conversation.id, {
       call_sid: call.sid,
@@ -268,6 +280,7 @@ async function processSms(body) {
       to: client.owner_phone,
       from: client.twilio_number,
       body: `NEW LEAD – ${client.business_name}\nName: ${leadName}\nPhone: +${leadPhone}\nService: ${serviceType}\nCall + SMS sent to lead.`,
+      credentials: clientCredentials(client),
     });
   } catch (err) {
     await handleError('twilio', err);
@@ -312,12 +325,14 @@ async function processAddressReply({ client, conversation, message }) {
       to: `+${conversation.lead_phone}`,
       from: client.twilio_number,
       body: `✅ All set! Your appointment with ${client.business_name} is confirmed:\n📅 ${formatted}\n📍 ${address}\n\nWe'll see you then! Reply STOP to cancel.`,
+      credentials: clientCredentials(client),
     });
 
     await twilioSvc.sendSms({
       to: client.owner_phone,
       from: client.twilio_number,
       body: `ADDRESS CONFIRMED – ${client.business_name}\nName: ${conversation.lead_name}\nPhone: +${conversation.lead_phone}\nTime: ${formatted}\nAddress: ${address}`,
+      credentials: clientCredentials(client),
     });
 
     logger.info('webhook', `address captured for ${conversation.lead_phone}: ${address}`);
@@ -354,6 +369,7 @@ async function processSchedulingReply({ client, conversation, message }) {
         to: `+${conversation.lead_phone}`,
         from: client.twilio_number,
         body: `Thanks for reaching out! To schedule your free estimate with ${client.business_name}, please reply with a specific day and time — for example: "Monday at 2pm" or "Friday morning". 📅`,
+        credentials: clientCredentials(client),
       });
       logger.info('webhook', `could not parse date from reply: "${message}", asked lead to clarify`);
       return;
@@ -396,6 +412,7 @@ async function processSchedulingReply({ client, conversation, message }) {
       to: `+${conversation.lead_phone}`,
       from: client.twilio_number,
       body: `Great! ${formatted} works for us 📅\n\nOne last thing — what's the address for the estimate? (Street, City, State) 📍`,
+      credentials: clientCredentials(client),
     });
 
     // Notify owner of pending appointment
@@ -403,6 +420,7 @@ async function processSchedulingReply({ client, conversation, message }) {
       to: client.owner_phone,
       from: client.twilio_number,
       body: `PENDING ADDRESS – ${client.business_name}\nName: ${conversation.lead_name || 'Customer'}\nPhone: +${conversation.lead_phone}\nService: ${conversation.service_type}\nTime: ${formatted}\n(Waiting for address)`,
+      credentials: clientCredentials(client),
     });
 
     logger.info('webhook', `scheduled lead ${conversation.lead_phone} for ${isoDate}`);
@@ -517,6 +535,7 @@ async function processGather({ speech, conversationId, clientId }) {
       to: client.owner_phone,
       from: client.twilio_number,
       body: `SCHEDULED – ${client.business_name}\nPhone: ${conv.lead_phone}\nService: ${conv.service_type}\nTime: ${startDate.toLocaleString('en-US', { timeZone: client.timezone || 'America/New_York' })}\nLead said: "${speech}"`,
+      credentials: clientCredentials(client),
     });
   } catch (err) {
     await handleError('twilio', err);
