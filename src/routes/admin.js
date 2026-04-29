@@ -148,10 +148,10 @@ router.post('/weekly-report', async (req, res) => {
 });
 
 router.post('/test-alert', async (req, res) => {
+  const alertPhone = process.env.ALERT_PHONE;
+  const fromNumber = process.env.TWILIO_FROM_ALERT || process.env.ALERT_FROM;
   try {
     const twilio = require('twilio');
-    const alertPhone = process.env.ALERT_PHONE;
-    const fromNumber = process.env.TWILIO_FROM_ALERT || process.env.ALERT_FROM;
     if (!alertPhone || !fromNumber) {
       return res.status(400).json({ error: 'ALERT_PHONE or ALERT_FROM not configured' });
     }
@@ -166,7 +166,6 @@ router.post('/test-alert', async (req, res) => {
     res.status(500).json({
       error: err.message,
       code: err.code,
-      status: err.status,
       sid_prefix: process.env.TWILIO_ACCOUNT_SID ? process.env.TWILIO_ACCOUNT_SID.slice(0, 6) : 'missing',
       from: fromNumber,
       to: alertPhone,
