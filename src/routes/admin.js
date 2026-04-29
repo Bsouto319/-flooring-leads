@@ -163,7 +163,14 @@ router.post('/test-alert', async (req, res) => {
     });
     res.json({ ok: true, to: alertPhone, from: fromNumber });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({
+      error: err.message,
+      code: err.code,
+      status: err.status,
+      sid_prefix: process.env.TWILIO_ACCOUNT_SID ? process.env.TWILIO_ACCOUNT_SID.slice(0, 6) : 'missing',
+      from: fromNumber,
+      to: alertPhone,
+    });
   }
 });
 
