@@ -41,6 +41,49 @@ function isWithinBusinessHours(timezone = 'America/New_York') {
   return hour >= 8 && hour < 21; // 8am–9pm
 }
 
+function detectHumanHandoff(text) {
+  const msg = (text || '').toLowerCase();
+  return /\b(speak\s+to\s+(a\s+)?(human|person|someone|agent|representative|rep)|talk\s+to\s+(a\s+)?(human|person|someone|agent|representative|rep)|want\s+(a\s+)?(human|person|someone|agent)|call\s+me(\s+back)?|just\s+call|can\s+you\s+call|please\s+call|i\s+want\s+a\s+person|stop\s+(texting|messaging|the\s+texts)|real\s+person|live\s+(agent|person|support)|human\s+(agent|support)|frustrated|this\s+isn'?t\s+working|not\s+working|doesn'?t\s+work|useless|this\s+is\s+(terrible|horrible|ridiculous)|this\s+sucks|operator)\b/.test(msg);
+}
+
+async function handleHumanHandoff({ client, conversation, message }) {
+  const leadPhone = conversation.lead_phone;
+  const leadName  = conversation.lead_name || 'Customer';
+
+  try {
+    await db.updateConversation(conversation.id, {
+      stage: 'handoff',
+      last_response_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    await handleError('supabase', err);
+  }
+
+  try {
+    await twilioSvc.sendSms({
+      to: `+${leadPhone}`,
+      from: client.twilio_number,
+      body: `Got it! I'm connecting you with our team at ${client.business_name} right now. Expect a call shortly! 📞`,
+      credentials: clientCredentials(client),
+    });
+  } catch (err) {
+    await handleError('twilio', err);
+  }
+
+  try {
+    await twilioSvc.sendSms({
+      to: client.owner_phone,
+      from: client.twilio_number,
+      body: `⚠️ HUMAN HANDOFF – ${client.business_name}\nName: ${leadName}\nPhone: +${leadPhone}\nMessage: "${message}"\n\nLead is requesting a human. Please call them directly.`,
+      credentials: clientCredentials(client),
+    });
+  } catch (err) {
+    await handleError('twilio', err);
+  }
+
+  logger.info('webhook', `human handoff triggered for ${leadPhone}`);
+}
+
 function detectServiceType(text) {
   const msg = (text || '').toLowerCase();
   if (/tile|tiling|grout|bullnose|porcelain/.test(msg)) return 'tile_install';
@@ -170,6 +213,14 @@ async function processSms(body) {
   // 2. Check if lead already exists (scheduling or address reply)
   const existingConv = await db.getExistingConversation(client.id, leadPhone);
   if (existingConv) {
+    if (existingConv.stage === 'handoff') {
+      logger.info('webhook', `lead ${leadPhone} already in human handoff, skipping AI`);
+      return;
+    }
+    if (detectHumanHandoff(message)) {
+      await handleHumanHandoff({ client, conversation: existingConv, message });
+      return;
+    }
     if (existingConv.stage === 'awaiting_address') {
       logger.info('webhook', `address reply from ${leadPhone}`);
       await processAddressReply({ client, conversation: existingConv, message });
@@ -208,6 +259,12 @@ async function processSms(body) {
     });
   } catch (err) {
     await handleError('supabase', err);
+    return;
+  }
+
+  // 3b. If new lead is immediately requesting a human, skip AI flow
+  if (detectHumanHandoff(message)) {
+    await handleHumanHandoff({ client, conversation, message });
     return;
   }
 
@@ -309,6 +366,10 @@ async function processSms(body) {
 
 // Process scheduling reply from lead
 async function processAddressReply({ client, conversation, message }) {
+  if (detectHumanHandoff(message)) {
+    await handleHumanHandoff({ client, conversation, message });
+    return;
+  }
   try {
     const address = message.trim();
     const tz = client.timezone || 'America/New_York';
@@ -360,6 +421,10 @@ async function processAddressReply({ client, conversation, message }) {
 }
 
 async function processSchedulingReply({ client, conversation, message }) {
+  if (detectHumanHandoff(message)) {
+    await handleHumanHandoff({ client, conversation, message });
+    return;
+  }
   try {
     const OpenAI = require('openai');
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
