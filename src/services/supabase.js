@@ -325,6 +325,11 @@ async function getConversationWithClient(id) {
   return data;
 }
 
+async function getConversationById(id) {
+  const { data } = await supabase.from('conversations').select('id, stage').eq('id', id).single();
+  return data || null;
+}
+
 async function getClientByUserId(userId) {
   const { data, error } = await supabase
     .from('clients')
@@ -365,4 +370,5 @@ module.exports = {
   getNoShowLeads,
   getClientByUserId,
   getConversationWithClient,
+  getConversationById,
 };

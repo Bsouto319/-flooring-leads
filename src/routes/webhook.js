@@ -370,6 +370,16 @@ async function processAddressReply({ client, conversation, message }) {
     await handleHumanHandoff({ client, conversation, message });
     return;
   }
+
+  // If lead sends a date correction instead of an address, re-parse date
+  const looksLikeDate = /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|next\s+\w+|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|\d{1,2}[\/\-]\d{1,2}|\d+(am|pm)|morning|afternoon|evening)\b/i.test(message);
+  if (looksLikeDate && !/\d+\s+\w+\s+(st|street|ave|avenue|blvd|dr|drive|rd|road|lane|ln|way|court|ct)/i.test(message)) {
+    logger.info('webhook', `date correction received in awaiting_address stage from ${conversation.lead_phone}`);
+    await db.updateConversation(conversation.id, { stage: 'ai_responded' });
+    await processSchedulingReply({ client, conversation: { ...conversation, stage: 'ai_responded' }, message });
+    return;
+  }
+
   try {
     const address = message.trim();
     const tz = client.timezone || 'America/New_York';
@@ -425,6 +435,12 @@ async function processSchedulingReply({ client, conversation, message }) {
     await handleHumanHandoff({ client, conversation, message });
     return;
   }
+  // Deduplication: re-fetch to confirm stage hasn't changed since webhook fired
+  const fresh = await db.getConversationById(conversation.id);
+  if (!fresh || fresh.stage !== 'ai_responded') {
+    logger.info('webhook', `scheduling reply skipped — stage changed to ${fresh?.stage} (duplicate webhook)`);
+    return;
+  }
   try {
     const OpenAI = require('openai');
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -432,13 +448,14 @@ async function processSchedulingReply({ client, conversation, message }) {
     const tz  = client.timezone || 'America/New_York';
 
     // Parse date/time from SMS
+    const localNow = new Date().toLocaleString('en-US', { timeZone: tz, weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       max_tokens: 100,
       messages: [
         {
           role: 'system',
-          content: `Today is ${now}. Extract a specific ISO 8601 datetime from the user's message. If vague (e.g. "tomorrow afternoon"), pick 2pm. If no day, use next business day. Timezone: ${tz}. If the message contains NO date or time information at all, respond with exactly: INVALID. Otherwise respond ONLY with the ISO datetime.`,
+          content: `Current date and time in ${tz}: ${localNow}. Extract a specific ISO 8601 datetime from the user's message. Rules: "next Monday" means the very next Monday on the calendar. "tomorrow" means exactly the next calendar day. If vague time (e.g. "afternoon"), pick 2pm. If no day mentioned, use next business day. If message contains NO date or time info at all, respond INVALID. Respond ONLY with the ISO datetime string, nothing else.`,
         },
         { role: 'user', content: message },
       ],
