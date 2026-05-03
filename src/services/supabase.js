@@ -340,7 +340,7 @@ async function getClientByUserId(userId) {
   return data;
 }
 
-async function createClient(fields) {
+async function createClientRecord(fields) {
   const { data, error } = await supabase
     .from('clients')
     .insert({
@@ -420,7 +420,7 @@ module.exports = {
   getClientByUserId,
   getConversationWithClient,
   getConversationById,
-  createClient,
+  createClient: createClientRecord,
   closeLead,
   appendMessage,
   getMessages,
