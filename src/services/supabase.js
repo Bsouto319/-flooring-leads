@@ -17,6 +17,17 @@ async function getClientByTwilioNumber(twilioNumber) {
   return data;
 }
 
+async function getClientById(id) {
+  const { data, error } = await supabase
+    .from('clients')
+    .select('*, pricing(*)')
+    .eq('id', id)
+    .eq('active', true)
+    .single();
+  if (error) throw new Error(`Supabase getClientById: ${error.message}`);
+  return data;
+}
+
 async function getExistingConversation(clientId, leadPhone) {
   const { data } = await supabase
     .from('conversations')
@@ -391,6 +402,7 @@ async function getMessages(conversationId) {
 
 module.exports = {
   getClientByTwilioNumber,
+  getClientById,
   getExistingConversation,
   checkDuplicate,
   saveLead,
