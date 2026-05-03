@@ -57,7 +57,8 @@ function startCronJobs() {
         const address = conv.lead_address ? `\n📍 ${conv.lead_address}` : '';
         await twilioSvc.sendSms({
           to: `+${conv.lead_phone}`, from: client.twilio_number,
-          body: `Hi${name}! Confirming your FREE estimate with ${client.business_name} tomorrow — ${formatted}.${address}\n\nReply STOP to cancel.`,
+          body: `📅 Reminder, ${name || 'hey'}! Your FREE estimate with ${client.business_name} is TOMORROW — ${formatted}.${address}\n\nWe'll be there! Any questions, just reply here. See you soon! 😊\n\nReply STOP to cancel.`,
+          credentials: client.twilio_account_sid ? { accountSid: client.twilio_account_sid, authToken: client.twilio_auth_token } : null,
         });
         await db.markReminderSent(conv.id);
         logger.info('cron', `reminder sent → ${conv.lead_phone}`);
@@ -74,9 +75,11 @@ function startCronJobs() {
         const client = conv.clients;
         if (!client) continue;
         const name = conv.lead_name && conv.lead_name !== 'Customer' ? ` ${conv.lead_name}` : '';
+        const service = (conv.service_type || 'project').replace(/_/g, ' ');
         await twilioSvc.sendSms({
           to: `+${conv.lead_phone}`, from: client.twilio_number,
-          body: `Hi${name}! This is ${client.business_name} following up on your ${(conv.service_type || 'project').replace(/_/g, ' ')} request.\n\nWe still have availability this week for a FREE estimate. What day works best? 📅\n\nReply STOP to opt out.`,
+          body: `Hey${name}! 🏠 Still thinking about that ${service}? ${client.business_name} just opened up a couple spots THIS week for FREE in-home estimates. We'd love to get yours scheduled — first come, first served! What day works for you? 📅\n\nReply STOP to opt out.`,
+          credentials: client.twilio_account_sid ? { accountSid: client.twilio_account_sid, authToken: client.twilio_auth_token } : null,
         });
         await db.markFollowupSent(conv.id, 'd3');
         logger.info('cron', `d3 followup → ${conv.lead_phone}`);
@@ -84,10 +87,12 @@ function startCronJobs() {
       for (const conv of d7Leads) {
         const client = conv.clients;
         if (!client) continue;
-        const name = conv.lead_name && conv.lead_name !== 'Customer' ? ` ${conv.lead_name}` : '';
+        const name7 = conv.lead_name && conv.lead_name !== 'Customer' ? ` ${conv.lead_name}` : '';
+        const service7 = (conv.service_type || 'project').replace(/_/g, ' ');
         await twilioSvc.sendSms({
           to: `+${conv.lead_phone}`, from: client.twilio_number,
-          body: `Hi${name}! Last chance — ${client.business_name} has a few openings next week for FREE estimates.\n\nInterested? Reply with a day and time! 📅\n\nReply STOP to opt out.`,
+          body: `${name7 || 'Hey'}! 🙏 Last chance — ${client.business_name} has ONE final opening before we're fully booked for the month on ${service7}. FREE estimate, zero obligation, we come to you. Reply with a day and we'll lock it in right now 🔒\n\nReply STOP to opt out.`,
+          credentials: client.twilio_account_sid ? { accountSid: client.twilio_account_sid, authToken: client.twilio_auth_token } : null,
         });
         await db.markFollowupSent(conv.id, 'd7');
         logger.info('cron', `d7 followup → ${conv.lead_phone}`);
@@ -103,11 +108,12 @@ function startCronJobs() {
       for (const conv of completed) {
         const client = conv.clients;
         if (!client) continue;
-        const name       = conv.lead_name && conv.lead_name !== 'Customer' ? ` ${conv.lead_name}` : '';
-        const reviewLink = client.google_review_link ? `\n\n⭐ We'd love your review: ${client.google_review_link}` : '';
+        const nameR      = conv.lead_name && conv.lead_name !== 'Customer' ? ` ${conv.lead_name}` : '';
+        const reviewLink = client.google_review_link ? `\n\n⭐ If we knocked it out of the park, a quick Google review means the WORLD to us — takes less than 60 seconds: ${client.google_review_link}` : '';
         await twilioSvc.sendSms({
           to: `+${conv.lead_phone}`, from: client.twilio_number,
-          body: `Hi${name}! Thank you for choosing ${client.business_name}. We hope you're happy with the work! 🙏${reviewLink}\n\nReply STOP to opt out.`,
+          body: `Hi${nameR}! 🏠 Hope the work turned out exactly how you imagined! It was a pleasure working with you. Thank you for choosing ${client.business_name}! 🙏${reviewLink}\n\nReply STOP to opt out.`,
+          credentials: client.twilio_account_sid ? { accountSid: client.twilio_account_sid, authToken: client.twilio_auth_token } : null,
         });
         await db.markReviewSent(conv.id);
         logger.info('cron', `review request → ${conv.lead_phone}`);
@@ -123,10 +129,11 @@ function startCronJobs() {
       for (const conv of noShows) {
         const client = conv.clients;
         if (!client) continue;
-        const name = conv.lead_name && conv.lead_name !== 'Customer' ? ` ${conv.lead_name}` : '';
+        const nameNS = conv.lead_name && conv.lead_name !== 'Customer' ? ` ${conv.lead_name}` : '';
         await twilioSvc.sendSms({
           to: `+${conv.lead_phone}`, from: client.twilio_number,
-          body: `Hi${name}! We missed you today. No worries — ${client.business_name} would love to reschedule your FREE estimate.\n\nWhat day works for you? 📅\n\nReply STOP to opt out.`,
+          body: `Hey${nameNS}! Looks like we missed each other today 😅 Totally fine — life happens! ${client.business_name} would love to find a time that works better. What day this week or next looks good for you? 📅\n\nReply STOP to opt out.`,
+          credentials: client.twilio_account_sid ? { accountSid: client.twilio_account_sid, authToken: client.twilio_auth_token } : null,
         });
         await db.updateConversation(conv.id, { stage: 'no_show' });
         logger.info('cron', `no-show re-engagement → ${conv.lead_phone}`);
