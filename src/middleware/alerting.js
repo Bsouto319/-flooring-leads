@@ -2,7 +2,11 @@ const twilio = require('twilio');
 const logger = require('../utils/logger');
 const db = require('../services/supabase');
 
-const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+let _alertClient = null;
+function getAlertClient() {
+  if (!_alertClient) _alertClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+  return _alertClient;
+}
 const lastAlertAt = {};
 
 async function sendAlert(service, message) {
@@ -17,7 +21,7 @@ async function sendAlert(service, message) {
   const body = `SYSTEM ALERT – ${service} failed: ${message.slice(0, 120)}`;
 
   try {
-    await client.messages.create({ to: alertPhone, from: process.env.TWILIO_FROM_ALERT || process.env.ALERT_FROM, body });
+    await getAlertClient().messages.create({ to: alertPhone, from: process.env.TWILIO_FROM_ALERT || process.env.ALERT_FROM, body });
   } catch (err) {
     logger.error('alerting', 'failed to send alert SMS', err.message);
   }

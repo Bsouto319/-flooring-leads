@@ -1,13 +1,13 @@
 const twilio = require('twilio');
 const logger = require('../utils/logger');
 
-const defaultClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-
+let _defaultClient = null;
 function getClient(credentials) {
   if (credentials?.accountSid && credentials?.authToken) {
     return twilio(credentials.accountSid, credentials.authToken);
   }
-  return defaultClient;
+  if (!_defaultClient) _defaultClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+  return _defaultClient;
 }
 
 function escapeXml(str) {

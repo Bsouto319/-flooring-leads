@@ -1,7 +1,11 @@
 const OpenAI = require('openai');
 const logger = require('../utils/logger');
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+let _openai = null;
+function getOpenAI() {
+  if (!_openai) _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  return _openai;
+}
 
 async function generateVoiceScript({ businessName, serviceType, pricing, systemPrompt }) {
   const pricingText = pricing && pricing.length > 0
@@ -18,7 +22,7 @@ Rules:
 - NEVER mention specific prices
 Respond ONLY with the script, no quotes or labels.`;
 
-  const completion = await openai.chat.completions.create({
+  const completion = await getOpenAI().chat.completions.create({
     model: 'gpt-4o-mini',
     max_tokens: 150,
     temperature: 0.6,
