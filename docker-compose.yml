@@ -3,5 +3,7 @@ services:
     build: .
     ports:
       - "3000:3000"
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     restart: unless-stopped
